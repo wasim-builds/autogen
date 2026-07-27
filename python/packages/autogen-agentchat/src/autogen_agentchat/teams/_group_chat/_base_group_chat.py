@@ -33,6 +33,8 @@ from ._events import (
     GroupChatStart,
     GroupChatTermination,
     SerializableException,
+    GroupChatGetThread,
+    GroupChatGetThreadResponse,
 )
 from ._sequential_routed_agent import SequentialRoutedAgent
 
@@ -744,6 +746,46 @@ class BaseGroupChat(Team, ABC, ComponentBase[BaseModel]):
             GroupChatResume(),
             recipient=AgentId(type=self._group_chat_manager_topic_type, key=self._team_id),
         )
+
+    async def get_thread(self) -> List[BaseAgentEvent | BaseChatMessage]:
+        """Get the current message thread from the group chat.
+
+        The team must be initialized before it can get the thread.
+
+        Returns:
+            The list of messages in the current thread.
+
+        Raises:
+            RuntimeError: If the team has not been initialized.
+        """
+        if not self._initialized:
+            raise RuntimeError("The group chat has not been initialized. It must be run before it can get the thread.")
+
+        was_running = self._is_running
+        if not was_running:
+            self._is_running = True
+
+        if self._embedded_runtime and not was_running:
+            # Start the runtime.
+            assert isinstance(self._runtime, SingleThreadedAgentRuntime)
+            self._runtime.start()
+
+        try:
+            # Send a request to get the thread to the group chat manager.
+            response = await self._runtime.send_message(
+                GroupChatGetThread(),
+                recipient=AgentId(type=self._group_chat_manager_topic_type, key=self._team_id),
+            )
+            assert isinstance(response, GroupChatGetThreadResponse)
+            return response.messages
+        finally:
+            if self._embedded_runtime and not was_running:
+                # Stop the runtime.
+                assert isinstance(self._runtime, SingleThreadedAgentRuntime)
+                await self._runtime.stop_when_idle()
+
+            if not was_running:
+                self._is_running = False
 
     async def save_state(self) -> Mapping[str, Any]:
         """Save the state of the group chat team.
