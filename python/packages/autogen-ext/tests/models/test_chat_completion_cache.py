@@ -956,3 +956,31 @@ async def test_create_stream_with_cached_non_streaming_result_non_string_content
     assert stream_results[0].content == [expected_function_call]
     assert stream_results[0].finish_reason == "function_calls"
     assert stream_results[0].cached is True
+
+
+@pytest.mark.asyncio
+async def test_cache_key_includes_tool_choice() -> None:
+    """Test that calls with different tool_choice produce different cache keys and cache misses."""
+    _, prompts, system_prompt, _, _ = get_test_data()
+    responses = ["response for auto", "response for none"]
+    replay_client = ReplayChatCompletionClient(responses)
+    replay_client.set_cached_bool_value(False)
+    cached_client = ChatCompletionCache(replay_client)
+
+    messages = [system_prompt, UserMessage(content=prompts[0], source="user")]
+
+    # First call with tool_choice="auto"
+    res1 = await cached_client.create(messages, tool_choice="auto")
+    assert res1.cached is False
+    assert res1.content == "response for auto"
+
+    # Second call with same message but tool_choice="none" -> should be a cache miss
+    res2 = await cached_client.create(messages, tool_choice="none")
+    assert res2.cached is False
+    assert res2.content == "response for none"
+
+    # Third call with tool_choice="auto" again -> should be a cache hit
+    res3 = await cached_client.create(messages, tool_choice="auto")
+    assert res3.cached is True
+    assert res3.content == "response for auto"
+
