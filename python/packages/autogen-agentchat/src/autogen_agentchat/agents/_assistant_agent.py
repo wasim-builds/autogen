@@ -1197,22 +1197,26 @@ class AssistantAgent(BaseChatAgent, Component[AssistantAgentConfig]):
                 function_calls: List[FunctionCall],
                 stream_queue: asyncio.Queue[BaseAgentEvent | BaseChatMessage | None],
             ) -> List[Tuple[FunctionCall, FunctionExecutionResult]]:
-                results = await asyncio.gather(
-                    *[
-                        cls._execute_tool_call(
-                            tool_call=call,
-                            workbench=workbench,
-                            handoff_tools=handoff_tools,
-                            agent_name=agent_name,
-                            cancellation_token=cancellation_token,
-                            stream=stream_queue,
-                        )
-                        for call in function_calls
-                    ]
-                )
-                # Signal the end of streaming by putting None in the queue.
-                stream_queue.put_nowait(None)
-                return results
+                try:
+                    results = await asyncio.gather(
+                        *[
+                            cls._execute_tool_call(
+                                tool_call=call,
+                                workbench=workbench,
+                                handoff_tools=handoff_tools,
+                                agent_name=agent_name,
+                                cancellation_token=cancellation_token,
+                                stream=stream_queue,
+                            )
+                            for call in function_calls
+                        ]
+                    )
+                    return results
+                finally:
+                    # Signal the end of streaming by putting None in the queue.
+                    # Using finally ensures the queue always terminates, even when
+                    # the task is cancelled, preventing the consumer from hanging.
+                    stream_queue.put_nowait(None)
 
             task = asyncio.create_task(_execute_tool_calls(current_model_result.content, stream))
 
