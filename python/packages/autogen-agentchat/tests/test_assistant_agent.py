@@ -2878,8 +2878,8 @@ class TestAssistantAgentCancellationToken:
         # CancelledError propagates out (and is expected here).
         try:
             await asyncio.wait_for(consume_task, timeout=5.0)
-        except (asyncio.CancelledError, Exception):
-            pass  # Both outcomes are acceptable — what matters is we didn't hang.
+        except asyncio.CancelledError:
+            pass  # expected: cancellation propagates out of the consumer
 
 
 class TestAssistantAgentStreamingEdgeCases:
