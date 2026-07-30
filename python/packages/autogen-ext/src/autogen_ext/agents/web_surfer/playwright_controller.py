@@ -576,3 +576,4 @@ class PlaywrightController:
             return res.text_content
         else:
             return await self.get_webpage_text(page, n_lines=200)
+ 
