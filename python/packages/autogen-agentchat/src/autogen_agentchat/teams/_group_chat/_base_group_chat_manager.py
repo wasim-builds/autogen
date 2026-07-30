@@ -12,11 +12,13 @@ from ._events import (
     GroupChatMessage,
     GroupChatPause,
     GroupChatRequestPublish,
+    GroupChatRequestThread,
     GroupChatReset,
     GroupChatResume,
     GroupChatStart,
     GroupChatTeamResponse,
     GroupChatTermination,
+    GroupChatThreadResponse,
     SerializableException,
 )
 from ._sequential_routed_agent import SequentialRoutedAgent
@@ -284,6 +286,13 @@ class BaseGroupChatManager(SequentialRoutedAgent, ABC):
     async def handle_resume(self, message: GroupChatResume, ctx: MessageContext) -> None:
         """Resume the group chat manager. This is a no-op in the base class."""
         pass
+
+    @rpc
+    async def handle_request_thread(
+        self, message: GroupChatRequestThread, ctx: MessageContext
+    ) -> GroupChatThreadResponse:
+        """Handle a request to get the current message thread."""
+        return GroupChatThreadResponse(messages=list(self._message_thread))
 
     @abstractmethod
     async def validate_group_state(self, messages: List[BaseChatMessage] | None) -> None:

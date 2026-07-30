@@ -1944,3 +1944,19 @@ async def test_selector_group_chat_streaming(runtime: AgentRuntime | None) -> No
 
     # Content-based verification instead of index-based
     # Note: The streaming test verifies the streaming behavior, not the final result content
+
+
+async def test_group_chat_get_thread(runtime: AgentRuntime | None) -> None:
+    agent1 = TestChatAgent("agent1")
+    agent2 = TestChatAgent("agent2")
+    termination = MaxMessageTermination(2)
+    team = RoundRobinGroupChat([agent1, agent2], termination_condition=termination, runtime=runtime)
+
+    result = await team.run(task="Hello, world!")
+
+    messages = await team.get_thread()
+    # Should include task message + 2 agent responses
+    assert len(messages) == 3
+    assert messages[0].content == "Hello, world!"
+    assert messages[1].source == "agent1"
+    assert messages[2].source == "agent2"

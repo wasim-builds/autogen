@@ -111,3 +111,17 @@ class GroupChatError(BaseModel):
 
     error: SerializableException
     """The error that occurred."""
+
+
+class GroupChatRequestThread(BaseModel):
+    """A request to get the message thread from a group chat."""
+
+    ...
+
+
+class GroupChatThreadResponse(BaseModel):
+    """A response containing the message thread from a group chat."""
+
+    messages: List[SerializeAsAny[BaseAgentEvent | BaseChatMessage]]
+    """The messages in the group chat thread."""
+

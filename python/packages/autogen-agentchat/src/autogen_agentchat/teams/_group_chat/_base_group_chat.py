@@ -745,6 +745,33 @@ class BaseGroupChat(Team, ABC, ComponentBase[BaseModel]):
             recipient=AgentId(type=self._group_chat_manager_topic_type, key=self._team_id),
         )
 
+    async def get_thread(self) -> List[BaseAgentEvent | BaseChatMessage]:
+        """Get the current message thread from the group chat manager.
+
+        Returns:
+            A list of messages and events that have been broadcast in the group chat.
+        """
+        if not self._initialized:
+            await self._init(self._runtime)
+
+        was_running = self._is_running
+        if not was_running and self._embedded_runtime:
+            assert isinstance(self._runtime, SingleThreadedAgentRuntime)
+            self._runtime.start()
+
+        try:
+            from ._events import GroupChatRequestThread, GroupChatThreadResponse
+            response = await self._runtime.send_message(
+                GroupChatRequestThread(),
+                recipient=AgentId(type=self._group_chat_manager_topic_type, key=self._team_id),
+            )
+            assert isinstance(response, GroupChatThreadResponse)
+            return response.messages
+        finally:
+            if not was_running and self._embedded_runtime:
+                assert isinstance(self._runtime, SingleThreadedAgentRuntime)
+                await self._runtime.stop_when_idle()
+
     async def save_state(self) -> Mapping[str, Any]:
         """Save the state of the group chat team.
 
