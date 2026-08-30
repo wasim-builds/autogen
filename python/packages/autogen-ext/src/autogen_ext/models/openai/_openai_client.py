@@ -1306,6 +1306,29 @@ class OpenAIChatCompletionClient(BaseOpenAIChatCompletionClient, Component[OpenA
             # Close the client when done.
             # await custom_model_client.close()
 
+        For hosted, privacy-first inference through an OpenAI-compatible endpoint like PZERO, you can use the following code snippet:
+
+        .. code-block:: python
+
+            from autogen_ext.models.openai import OpenAIChatCompletionClient
+            from autogen_core.models import ModelFamily
+
+            pzero_client = OpenAIChatCompletionClient(
+                model="deepseek-v4-flash",
+                base_url="https://api.pzero.studio/v1",
+                api_key="pzero_YOUR_KEY",
+                model_info={
+                    "vision": False,
+                    "function_calling": True,
+                    "json_output": True,
+                    "family": ModelFamily.UNKNOWN,
+                    "structured_output": True,
+                },
+            )
+
+            # Close the client when done.
+            # await pzero_client.close()
+
         To use streaming mode, you can use the following code snippet:
 
         .. code-block:: python
