@@ -208,3 +208,54 @@ async def test_token_limited_model_context_openai_with_function_result(
     assert type(retrieved[0]) == UserMessage  # Function result should be removed
     assert type(retrieved[1]) == AssistantMessage
     assert type(retrieved[2]) == UserMessage
+
+
+@pytest.mark.asyncio
+async def test_token_limited_context_removes_orphaned_function_result() -> None:
+    """Test that orphaned FunctionExecutionResultMessages are removed when
+    the paired AssistantMessage is truncated from the middle of the list.
+    See https://github.com/microsoft/autogen/issues/7955"""
+
+    class FakeCounter:
+        def count_tokens(self, messages, tools=None):
+            return len(messages)  # one "token" per message for deterministic test
+
+        def remaining_tokens(self, messages, tools=None):
+            return 100 - len(messages)
+
+    model_context = TokenLimitedChatCompletionContext(model_client=FakeCounter(), token_limit=6)
+
+    from autogen_core import FunctionCall
+    from autogen_core.models import FunctionExecutionResult
+
+    messages: List[LLMMessage] = [
+        UserMessage(content="m0", source="user"),
+        UserMessage(content="m1", source="user"),
+        UserMessage(content="m2", source="user"),
+        AssistantMessage(content=[FunctionCall(id="call_1", arguments="{}", name="tool")], source="assistant"),
+        FunctionExecutionResultMessage(
+            content=[FunctionExecutionResult(content="ok", name="tool", call_id="call_1")]
+        ),
+        UserMessage(content="m5", source="user"),
+        UserMessage(content="m6", source="user"),
+    ]
+    for msg in messages:
+        await model_context.add_message(msg)
+
+    retrieved = await model_context.get_messages()
+
+    # The AssistantMessage at index 3 should be popped (middle of 7),
+    # leaving the FunctionExecutionResultMessage orphaned
+    # It should be removed, not left in the list
+    for msg in retrieved:
+        if isinstance(msg, FunctionExecutionResultMessage):
+            # If a FunctionExecutionResultMessage exists, it must have a matching call_id
+            # in an AssistantMessage somewhere in the list
+            call_ids = set()
+            for m in retrieved:
+                if isinstance(m, AssistantMessage) and isinstance(m.content, list):
+                    for item in m.content:
+                        if isinstance(item, FunctionCall):
+                            call_ids.add(item.id)
+            assert any(r.call_id in call_ids for r in msg.content), \
+                "Orphaned FunctionExecutionResultMessage found without matching AssistantMessage"

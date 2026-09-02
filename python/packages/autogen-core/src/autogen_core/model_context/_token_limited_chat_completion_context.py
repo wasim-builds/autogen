@@ -4,7 +4,8 @@ from pydantic import BaseModel
 from typing_extensions import Self
 
 from .._component_config import Component, ComponentModel
-from ..models import ChatCompletionClient, FunctionExecutionResultMessage, LLMMessage
+from .. import FunctionCall
+from ..models import AssistantMessage, ChatCompletionClient, FunctionExecutionResultMessage, LLMMessage
 from ..tools import ToolSchema
 from ._chat_completion_context import ChatCompletionContext
 
@@ -70,11 +71,37 @@ class TokenLimitedChatCompletionContext(ChatCompletionContext, Component[TokenLi
                 middle_index = len(messages) // 2
                 messages.pop(middle_index)
                 token_count = self._model_client.count_tokens(messages, tools=self._tool_schema)
-        if messages and isinstance(messages[0], FunctionExecutionResultMessage):
-            # Handle the first message is a function call result message.
-            # Remove the first message from the list.
-            messages = messages[1:]
+
+        # Remove orphaned FunctionExecutionResultMessages that have no matching
+        # AssistantMessage with a corresponding FunctionCall anywhere in the list.
+        # This can happen when truncation removes an AssistantMessage from the
+        # middle of the list while leaving its paired FunctionExecutionResultMessage.
+        messages = self._remove_orphaned_function_results(messages)
+
         return messages
+
+    def _remove_orphaned_function_results(self, messages: List[LLMMessage]) -> List[LLMMessage]:
+        """Remove FunctionExecutionResultMessage instances that have no matching
+        FunctionCall in any AssistantMessage within the provided message list."""
+        # Collect all call_ids from AssistantMessages
+        call_ids: set[str] = set()
+        for msg in messages:
+            if isinstance(msg, AssistantMessage) and isinstance(msg.content, list):
+                for item in msg.content:
+                    if isinstance(item, FunctionCall) and item.id:
+                        call_ids.add(item.id)
+
+        # Filter out orphaned FunctionExecutionResultMessages
+        result: List[LLMMessage] = []
+        for msg in messages:
+            if isinstance(msg, FunctionExecutionResultMessage):
+                # Keep only if at least one result has a matching call_id
+                has_match = any(result.call_id in call_ids for result in msg.content if result.call_id)
+                if has_match:
+                    result.append(msg)
+            else:
+                result.append(msg)
+        return result
 
     def _to_config(self) -> TokenLimitedChatCompletionContextConfig:
         return TokenLimitedChatCompletionContextConfig(
