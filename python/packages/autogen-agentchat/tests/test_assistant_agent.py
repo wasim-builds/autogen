@@ -2816,6 +2816,68 @@ class TestAssistantAgentCancellationToken:
         # Context clear should be called
         mock_context.clear.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_stream_terminates_after_tool_cancellation(self) -> None:
+        """Regression test: streaming operation must terminate cleanly when
+        a tool call is cancelled mid-flight. Previously, cancellation could
+        leave the stream blocking forever on queue.get().
+
+        See https://github.com/microsoft/autogen/issues/8092"""
+
+        import asyncio
+
+        # A tool that blocks until cancelled
+        async def blocking_tool() -> str:
+            # Wait forever - will only return when cancelled
+            await asyncio.sleep(3600)
+
+        model_client = ReplayChatCompletionClient(
+            [
+                CreateResult(
+                    finish_reason="function_calls",
+                    content=[FunctionCall(id="1", arguments="{}", name="blocking_tool")],
+                    usage=RequestUsage(prompt_tokens=10, completion_tokens=5),
+                    cached=False,
+                ),
+            ],
+            model_info={
+                "function_calling": True,
+                "vision": False,
+                "json_output": False,
+                "family": ModelFamily.GPT_4O,
+                "structured_output": False,
+            },
+        )
+
+        agent = AssistantAgent(
+            name="test_agent",
+            model_client=model_client,
+            tools=[blocking_tool],
+        )
+
+        cancellation_token = CancellationToken()
+
+        # Run the stream in a task so we can cancel it
+        async def consume_stream() -> None:
+            async for event in agent.on_messages_stream(
+                [TextMessage(content="Test", source="user")], cancellation_token
+            ):
+                pass  # We don't care about events, just that the stream terminates
+
+        task = asyncio.create_task(consume_stream())
+
+        # Give the stream time to start and reach the tool call
+        await asyncio.sleep(0.1)
+
+        # Cancel the operation - this should cause the stream to terminate
+        cancellation_token.cancel()
+
+        # The stream must terminate (not hang forever)
+        try:
+            await asyncio.wait_for(task, timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            pytest.fail("Stream did not terminate after cancellation - deadlock detected")
+
 
 class TestAssistantAgentStreamingEdgeCases:
     """Test suite for streaming edge cases and error scenarios."""
