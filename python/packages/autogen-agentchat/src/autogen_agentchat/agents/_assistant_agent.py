@@ -1232,7 +1232,27 @@ class AssistantAgent(BaseChatAgent, Component[AssistantAgentConfig]):
 
             # Wait for all tool calls to complete.
             executed_calls_and_results = await task
-            exec_results = [result for _, result in executed_calls_and_results]
+
+            # Process results, converting any exceptions to error FunctionExecutionResult
+            exec_results: List[FunctionExecutionResult] = []
+            processed_calls_and_results: List[Tuple[FunctionCall, FunctionExecutionResult]] = []
+            for item in executed_calls_and_results:
+                if isinstance(item, BaseException):
+                    # Tool call raised an exception (e.g. CancelledError)
+                    # Create a placeholder FunctionCall and an error result
+                    placeholder_call = FunctionCall(id="error", arguments="{}", name="error")
+                    error_result = FunctionExecutionResult(
+                        content=f"Tool execution error: {type(item).__name__}: {item}",
+                        call_id=placeholder_call.id,
+                        is_error=True,
+                        name=placeholder_call.name,
+                    )
+                    exec_results.append(error_result)
+                    processed_calls_and_results.append((placeholder_call, error_result))
+                else:
+                    call, result = item
+                    exec_results.append(result)
+                    processed_calls_and_results.append((call, result))
 
             # Yield ToolCallExecutionEvent
             tool_call_result_msg = ToolCallExecutionEvent(
@@ -1247,7 +1267,7 @@ class AssistantAgent(BaseChatAgent, Component[AssistantAgentConfig]):
             # STEP 4C: Check for handoff
             handoff_output = cls._check_and_handle_handoff(
                 model_result=current_model_result,
-                executed_calls_and_results=executed_calls_and_results,
+                executed_calls_and_results=processed_calls_and_results,
                 inner_messages=inner_messages,
                 handoffs=handoffs,
                 agent_name=agent_name,
@@ -1318,7 +1338,7 @@ class AssistantAgent(BaseChatAgent, Component[AssistantAgentConfig]):
                 yield reflection_response
         else:
             yield cls._summarize_tool_use(
-                executed_calls_and_results=executed_calls_and_results,
+                executed_calls_and_results=processed_calls_and_results,
                 inner_messages=inner_messages,
                 handoffs=handoffs,
                 tool_call_summary_format=tool_call_summary_format,
