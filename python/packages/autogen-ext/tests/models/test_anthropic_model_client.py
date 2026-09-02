@@ -828,12 +828,29 @@ def test_mock_rstrip_trailing_whitespace_at_last_assistant_content() -> None:
         AssistantMessage(content="foobar ", source="assistant"),
     ]
 
-    # This will crash if _rstrip_railing_whitespace_at_last_assistant_content is not applied to "content"
     dummy_client = AnthropicChatCompletionClient(model="claude-3-5-haiku-20241022", api_key="dummy-key")
     result = dummy_client._rstrip_last_assistant_message(messages)  # pyright: ignore[reportPrivateUsage]
 
-    assert isinstance(result[-1].content, str)
-    assert result[-1].content == "foobar"
+    # Trailing assistant message should be removed entirely
+    assert len(result) == 2
+    assert isinstance(result[-1], UserMessage)
+
+
+def test_rstrip_removes_multiple_trailing_assistant_messages() -> None:
+    """Test that multiple trailing assistant messages are removed."""
+    messages: list[LLMMessage] = [
+        UserMessage(content="foo", source="user"),
+        AssistantMessage(content="response 1", source="assistant"),
+        AssistantMessage(content="response 2", source="assistant"),
+    ]
+
+    dummy_client = AnthropicChatCompletionClient(model="claude-3-5-haiku-20241022", api_key="dummy-key")
+    result = dummy_client._rstrip_last_assistant_message(messages)  # pyright: ignore[reportPrivateUsage]
+
+    # All trailing assistant messages should be removed
+    assert len(result) == 1
+    assert isinstance(result[-1], UserMessage)
+    assert result[-1].content == "foo"
 
 
 @pytest.mark.asyncio
