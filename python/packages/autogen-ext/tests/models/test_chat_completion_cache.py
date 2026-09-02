@@ -956,3 +956,27 @@ async def test_create_stream_with_cached_non_streaming_result_non_string_content
     assert stream_results[0].content == [expected_function_call]
     assert stream_results[0].finish_reason == "function_calls"
     assert stream_results[0].cached is True
+
+
+@pytest.mark.asyncio
+async def test_cache_key_includes_tool_choice() -> None:
+    """Test that different tool_choice values produce different cache keys."""
+    from autogen_core import InMemoryStore
+    from autogen_core.models import UserMessage
+    from autogen_ext.models.cache import ChatCompletionCache
+    from autogen_ext.models.replay import ReplayChatCompletionClient
+
+    responses = ["response 0", "response 1"]
+    replay_client = ReplayChatCompletionClient(responses)
+    replay_client.set_cached_bool_value(False)
+    cached_client = ChatCompletionCache(replay_client, InMemoryStore())
+
+    message = [UserMessage(content="hi", source="user")]
+
+    r0 = await cached_client.create(message, tool_choice="auto")
+    assert not r0.cached
+    assert r0.content == "response 0"
+
+    r1 = await cached_client.create(message, tool_choice="none")
+    assert not r1.cached  # Should be cache miss due to different tool_choice
+    assert r1.content == "response 1"

@@ -179,6 +179,7 @@ class ChatCompletionCache(ChatCompletionClient, Component[ChatCompletionCacheCon
         tools: Sequence[Tool | ToolSchema],
         json_output: Optional[bool | type[BaseModel]],
         extra_create_args: Mapping[str, Any],
+        tool_choice: Optional[Tool | Literal["auto", "required", "none"]] = None,
     ) -> tuple[Optional[Union[CreateResult, List[Union[str, CreateResult]]]], str]:
         """
         Helper function to check the cache for a result.
@@ -192,11 +193,20 @@ class ChatCompletionCache(ChatCompletionClient, Component[ChatCompletionCacheCon
         elif isinstance(json_output, bool):
             json_output_data = json_output
 
+        # Include tool_choice in cache key to prevent stale cache hits
+        tool_choice_data: str | None = None
+        if tool_choice is not None:
+            if isinstance(tool_choice, str):
+                tool_choice_data = tool_choice
+            elif isinstance(tool_choice, Tool):
+                tool_choice_data = json.dumps(tool_choice.schema, sort_keys=True)
+
         data = {
             "messages": [message.model_dump() for message in messages],
             "tools": [(tool.schema if isinstance(tool, Tool) else tool) for tool in tools],
             "json_output": json_output_data,
             "extra_create_args": extra_create_args,
+            "tool_choice": tool_choice_data,
         }
         serialized_data = json.dumps(data, sort_keys=True)
         cache_key = hashlib.sha256(serialized_data.encode()).hexdigest()
@@ -270,7 +280,7 @@ class ChatCompletionCache(ChatCompletionClient, Component[ChatCompletionCacheCon
 
         NOTE: cancellation_token is ignored for cached results.
         """
-        cached_result, cache_key = self._check_cache(messages, tools, json_output, extra_create_args)
+        cached_result, cache_key = self._check_cache(messages, tools, json_output, extra_create_args, tool_choice)
         if cached_result is not None:
             if isinstance(cached_result, CreateResult):
                 # Cache hit from previous non-streaming call
@@ -319,6 +329,7 @@ class ChatCompletionCache(ChatCompletionClient, Component[ChatCompletionCacheCon
                 tools,
                 json_output,
                 extra_create_args,
+                tool_choice,
             )
             if cached_result is not None:
                 if isinstance(cached_result, list):
