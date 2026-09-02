@@ -12,6 +12,7 @@ from .._agent_instantiation import AgentInstantiationContext
 # Copied from opentelemetry-semantic-conventions to avoid dependency
 
 # GenAI Agent attributes
+GEN_AI_AGENT_ACTION_REF = "gen_ai.agent.action_ref"
 GEN_AI_AGENT_DESCRIPTION = "gen_ai.agent.description"
 GEN_AI_AGENT_ID = "gen_ai.agent.id"
 GEN_AI_AGENT_NAME = "gen_ai.agent.name"
@@ -53,6 +54,7 @@ def trace_tool_span(
     parent: Optional[Span] = None,
     tool_description: Optional[str] = None,
     tool_call_id: Optional[str] = None,
+    action_ref: Optional[str] = None,
 ) -> Generator[Span, Any, None]:
     """Context manager to create a span for tool execution following the
     OpenTelemetry Semantic conventions for generative AI systems.
@@ -72,6 +74,7 @@ def trace_tool_span(
         parent (Optional[Span]): The parent span to link this span to.
         tool_description (Optional[str]): A description of the tool.
         tool_call_id (Optional[str]): A unique identifier for the tool call.
+        action_ref (Optional[str]): A deterministic, recomputable handle for cross-producer audit correlation.
     """
     if tracer is None:
         tracer = trace.get_tracer("autogen-core")
@@ -84,6 +87,8 @@ def trace_tool_span(
         span_attributes[GEN_AI_TOOL_DESCRIPTION] = tool_description
     if tool_call_id is not None:
         span_attributes[GEN_AI_TOOL_CALL_ID] = tool_call_id
+    if action_ref is not None:
+        span_attributes[GEN_AI_AGENT_ACTION_REF] = action_ref
     with tracer.start_as_current_span(
         f"{GenAiOperationNameValues.EXECUTE_TOOL.value} {tool_name}",
         kind=SpanKind.INTERNAL,
