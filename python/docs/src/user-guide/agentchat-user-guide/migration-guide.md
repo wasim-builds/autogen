@@ -299,6 +299,42 @@ The {py:class}`~autogen_core.CancellationToken` can be used to cancel the reques
 when you call `cancellation_token.cancel()`, which will cause the `await`
 on the `on_messages` call to raise a `CancelledError`.
 
+### CancellationToken Propagation Through Nested Tools
+
+When using tools that perform long-running operations (e.g., web requests, file I/O),
+it is important to propagate the {py:class}`~autogen_core.CancellationToken` to ensure
+cancellation is observed throughout the call chain.
+
+There are two ways to forward the cancellation token to a tool:
+
+**1. Using `cancellation_token` parameter in the tool function:**
+
+```python
+import asyncio
+from autogen_core import CancellationToken
+from autogen_core.tools import FunctionTool
+
+async def slow_operation(duration: int, cancellation_token: CancellationToken) -> str:
+    # Forward the cancellation token to nested async operations
+    await asyncio.sleep(duration)  # This will be cancelled when token is cancelled
+    return "Operation completed"
+
+tool = FunctionTool(slow_operation, description="A slow operation")
+```
+
+**2. Using `cancellation_token.link_future()` for custom futures:**
+
+```python
+async def custom_operation(cancellation_token: CancellationToken) -> str:
+    future = asyncio.ensure_future(some_async_work())
+    cancellation_token.link_future(future)
+    result = await future
+    return result
+```
+
+When the cancellation token is cancelled, the linked future will be cancelled,
+causing the `await` to raise `CancelledError`.
+
 Read more on [Agent Tutorial](./tutorial/agents.ipynb)
 and {py:class}`~autogen_agentchat.agents.AssistantAgent`.
 
