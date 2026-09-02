@@ -480,6 +480,34 @@ async def test_func_tool_return_list() -> None:
     assert tool.return_value_as_string(result) == "[1, 2]"
 
 
+@pytest.mark.asyncio
+async def test_func_tool_return_dict_serializes_to_json() -> None:
+    """Test that dict return values are serialized to valid JSON, not Python repr."""
+
+    def my_function() -> dict:
+        return {"status": "success", "count": 42}
+
+    tool = FunctionTool(my_function, description="Function tool.")
+    result = await tool.run_json({}, CancellationToken())
+    assert isinstance(result, dict)
+    # Should be valid JSON with double quotes, not Python repr with single quotes
+    assert tool.return_value_as_string(result) == '{"status": "success", "count": 42}'
+
+
+@pytest.mark.asyncio
+async def test_func_tool_return_list_serializes_to_json() -> None:
+    """Test that list return values are serialized to valid JSON."""
+
+    def my_function() -> list:
+        return ["a", "b", "c"]
+
+    tool = FunctionTool(my_function, description="Function tool.")
+    result = await tool.run_json({}, CancellationToken())
+    assert isinstance(result, list)
+    # Should be valid JSON
+    assert tool.return_value_as_string(result) == '["a", "b", "c"]'
+
+
 def test_nested_tool_schema_generation() -> None:
     schema: ToolSchema = MyNestedTool().schema
 
