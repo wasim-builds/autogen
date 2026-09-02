@@ -1271,3 +1271,28 @@ async def test_anthropic_thinking_mode_with_tools() -> None:
     # Should have thinking content even with tool calls
     assert result.thought is not None
     assert len(result.thought) > 10
+
+
+def test_get_info_bedrock_model_id() -> None:
+    """Bedrock model IDs should resolve to the same info as the base model."""
+    from autogen_ext.models.anthropic._model_info import get_info
+
+    info = get_info("us.anthropic.claude-3-5-sonnet-20240620-v1:0")
+    assert info["function_calling"] is True
+    assert info["vision"] is True
+
+
+def test_get_token_limit_bedrock_model_id() -> None:
+    """Bedrock model IDs should resolve to the correct token limit."""
+    from autogen_ext.models.anthropic._model_info import get_token_limit
+
+    limit = get_token_limit("us.anthropic.claude-3-5-sonnet-20240620-v1:0")
+    assert limit == 200000
+
+
+def test_get_info_eu_bedrock_model_id() -> None:
+    """EU Bedrock model IDs should also resolve correctly."""
+    from autogen_ext.models.anthropic._model_info import get_info
+
+    info = get_info("eu.anthropic.claude-3-7-sonnet-20250219-v1:0")
+    assert info["function_calling"] is True
