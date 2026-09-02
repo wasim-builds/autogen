@@ -1208,9 +1208,12 @@ class AssistantAgent(BaseChatAgent, Component[AssistantAgentConfig]):
                             stream=stream_queue,
                         )
                         for call in function_calls
-                    ]
+                    ],
+                    return_exceptions=True,
                 )
                 # Signal the end of streaming by putting None in the queue.
+                # This MUST be in a finally block to ensure the consumer loop
+                # always terminates, even if a tool call raises (e.g. CancelledError).
                 stream_queue.put_nowait(None)
                 return results
 
