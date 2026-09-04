@@ -51,7 +51,7 @@ from autogen_core.models import (
     validate_model_info,
 )
 from autogen_core.tools import Tool, ToolSchema
-from openai import NOT_GIVEN, AsyncAzureOpenAI, AsyncOpenAI
+from openai import NOT_GIVEN, AsyncAzureOpenAI, AsyncOpenAI, BadRequestError
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -701,9 +701,38 @@ class BaseOpenAIChatCompletionClient(ChatCompletionClient):
 
         if cancellation_token is not None:
             cancellation_token.link_future(future)
-        result: Union[ParsedChatCompletion[BaseModel], ChatCompletion] = await future
-        if create_params.response_format is not None:
-            result = cast(ParsedChatCompletion[Any], result)
+
+        try:
+            result: Union[ParsedChatCompletion[Any], ChatCompletion] = await future
+        except BadRequestError as e:
+            if (
+                create_params.response_format is not None
+                and isinstance(create_params.response_format, type)
+                and issubclass(create_params.response_format, BaseModel)
+                and e.response is not None
+                and "response_format type is unavailable" in e.response.text
+            ):
+                fallback_args = dict(create_params.create_args)
+                fallback_args["response_format"] = ResponseFormatJSONObject(type="json_object")
+                future = asyncio.ensure_future(
+                    self._client.chat.completions.create(
+                        messages=create_params.messages,
+                        stream=False,
+                        tools=(create_params.tools if len(create_params.tools) > 0 else NOT_GIVEN),
+                        **fallback_args,
+                    )
+                )
+                if cancellation_token is not None:
+                    cancellation_token.link_future(future)
+                result = await future
+                result = create_params.response_format.model_validate_json(
+                    cast(ChatCompletion, result).choices[0].message.content or "{}"
+                )
+            else:
+                raise
+        else:
+            if create_params.response_format is not None:
+                result = cast(ParsedChatCompletion[Any], result)
 
         # Handle the case where OpenAI API might return None for token counts
         # even when result.usage is not None
