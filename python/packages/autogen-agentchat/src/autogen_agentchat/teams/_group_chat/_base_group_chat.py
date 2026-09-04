@@ -27,6 +27,7 @@ from ...messages import (
 from ...state import TeamState
 from ._chat_agent_container import ChatAgentContainer
 from ._events import (
+    GroupChatGetThread,
     GroupChatPause,
     GroupChatReset,
     GroupChatResume,
@@ -744,6 +745,44 @@ class BaseGroupChat(Team, ABC, ComponentBase[BaseModel]):
         # Send a resume message to the group chat manager.
         await self._runtime.send_message(
             GroupChatResume(),
+            recipient=AgentId(type=self._group_chat_manager_topic_type, key=self._team_id),
+        )
+
+    async def get_message_thread(self) -> List[BaseAgentEvent | BaseChatMessage]:
+        """Get the current message thread from the group chat.
+
+        Returns a list of all messages that have been exchanged in the group chat so far.
+
+        Example:
+
+            .. code-block:: python
+
+                import asyncio
+                from autogen_agentchat.agents import AssistantAgent
+                from autogen_agentchat.teams import RoundRobinGroupChat
+                from autogen_ext.models.openai import OpenAIChatCompletionClient
+
+
+                async def main() -> None:
+                    model_client = OpenAIChatCompletionClient(model="gpt-4o")
+
+                    agent1 = AssistantAgent("Assistant1", model_client=model_client)
+                    agent2 = AssistantAgent("Assistant2", model_client=model_client)
+                    team = RoundRobinGroupChat([agent1, agent2], termination_condition=MaxMessageTermination(3))
+                    await team.run(task="Count from 1 to 10, respond one at a time.")
+
+                    # Get the message thread.
+                    thread = await team.get_message_thread()
+                    for msg in thread:
+                        print(msg)
+
+                asyncio.run(main())
+        """
+        if not self._initialized:
+            await self._init(self._runtime)
+
+        return await self._runtime.send_message(
+            GroupChatGetThread(),
             recipient=AgentId(type=self._group_chat_manager_topic_type, key=self._team_id),
         )
 
