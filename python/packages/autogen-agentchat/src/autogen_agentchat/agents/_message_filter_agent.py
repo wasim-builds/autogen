@@ -152,33 +152,15 @@ class MessageFilterAgent(BaseChatAgent, Component[MessageFilterAgentConfig]):
         return self._wrapped_agent.produced_message_types
 
     def _apply_filter(self, messages: Sequence[BaseChatMessage]) -> Sequence[BaseChatMessage]:
-        # Build a lookup from source to its filter config
-        filter_by_source: dict[str, PerSourceFilter] = {}
-        for source_filter in self._filter.per_source:
-            filter_by_source[source_filter.source] = source_filter
-
-        # For each source, determine which indices (in the original chronological order)
-        # should be kept based on first-N/last-N configuration
         indices_to_keep: set[int] = set()
-
-        # Group indices by source
-        indices_by_source: dict[str, list[int]] = {}
-        for idx, msg in enumerate(messages):
-            indices_by_source.setdefault(msg.source, []).append(idx)
-
-        for source, indices in indices_by_source.items():
-            if source not in filter_by_source:
-                continue
-            config = filter_by_source[source]
-            if config.position == "first" and config.count:
-                indices_to_keep.update(indices[: config.count])
-            elif config.position == "last" and config.count:
-                indices_to_keep.update(indices[-config.count :])
+        for source_filter in self._filter.per_source:
+            indices = [idx for idx, m in enumerate(messages) if m.source == source_filter.source]
+            if source_filter.position == "first" and source_filter.count:
+                indices_to_keep.update(indices[: source_filter.count])
+            elif source_filter.position == "last" and source_filter.count:
+                indices_to_keep.update(indices[-source_filter.count :])
             else:
-                # position is None, keep all messages from this source
                 indices_to_keep.update(indices)
-
-        # Return messages in their original chronological order
         return [msg for idx, msg in enumerate(messages) if idx in indices_to_keep]
 
     async def on_messages(
