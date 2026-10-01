@@ -1215,6 +1215,8 @@ class AssistantAgent(BaseChatAgent, Component[AssistantAgentConfig]):
                     # Re-raise CancelledError to honour the cancellation contract:
                     # asyncio.CancelledError is a BaseException; returning it as a tool
                     # error result would swallow cancellation silently.
+                    if cancellation_token.is_cancelled():
+                        raise asyncio.CancelledError("Tool execution was cancelled")
                     for result in results:
                         if isinstance(result, asyncio.CancelledError):
                             raise result
