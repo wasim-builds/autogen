@@ -1967,3 +1967,12 @@ async def test_round_robin_group_chat_validates_participants_invalid_type() -> N
 
     with pytest.raises(TypeError, match=r"participants\[1\] must be a ChatAgent or Team"):
         RoundRobinGroupChat(participants=[UserProxyAgent(name="valid"), "invalid"])  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_round_robin_group_chat_accepts_tuple_participants() -> None:
+    """Test that participants passed as a tuple is accepted."""
+    from autogen_agentchat.agents import UserProxyAgent
+
+    team = RoundRobinGroupChat(participants=(UserProxyAgent(name="agent1"), UserProxyAgent(name="agent2")))
+    assert len(team._participants) == 2

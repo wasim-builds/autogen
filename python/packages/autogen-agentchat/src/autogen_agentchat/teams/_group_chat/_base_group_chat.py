@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Callable, Dict, List, Mapping, Sequence
+from typing import Any, AsyncGenerator, Callable, Dict, List, Mapping, Sequence, Tuple
 
 from autogen_core import (
     AgentId,
@@ -67,7 +67,7 @@ class BaseGroupChat(Team, ABC, ComponentBase[BaseModel]):
         self,
         name: str,
         description: str,
-        participants: List[ChatAgent | Team],
+        participants: List[ChatAgent | Team] | Tuple[ChatAgent | Team, ...],
         group_chat_manager_name: str,
         group_chat_manager_class: type[SequentialRoutedAgent],
         termination_condition: TerminationCondition | None = None,
