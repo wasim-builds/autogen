@@ -1,33 +1,201 @@
-import pytest
-from typing import List
-from autogen_agentchat.agents import MessageFilterAgent, MessageFilterConfig, PerSourceFilter, BaseChatAgent
-from autogen_agentchat.messages import TextMessage
-from autogen_core import CancellationToken
-from typing import Sequence, Any, AsyncGenerator, Union
-from autogen_agentchat.base import Response
-from autogen_agentchat.messages import BaseAgentEvent, BaseChatMessage
+from typing import Sequence
 
-class DummyAgent(BaseChatAgent):
+import pytest
+
+from autogen_agentchat.agents import BaseChatAgent
+from autogen_agentchat.agents._message_filter_agent import (
+    MessageFilterAgent,
+    MessageFilterConfig,
+    PerSourceFilter,
+)
+from autogen_agentchat.base import Response
+from autogen_agentchat.messages import BaseChatMessage, TextMessage
+from autogen_core import CancellationToken
+
+
+class RecordingAgent(BaseChatAgent):
     def __init__(self, name: str):
-        super().__init__(name=name, description="Dummy agent")
-        self.received_messages: List[BaseChatMessage] = []
+        super().__init__(name=name, description="records message order")
+        self.received_order: list[str] = []
 
     @property
-    def produced_message_types(self) -> Sequence[type[BaseChatMessage]]:
+    def produced_message_types(self):
         return (TextMessage,)
 
-    async def on_messages(self, messages: Sequence[BaseChatMessage], cancellation_token: CancellationToken) -> Response:
-        self.received_messages = list(messages)
-        return Response(chat_message=TextMessage(content="dummy", source=self.name))
+    async def on_messages(
+        self, messages: Sequence[BaseChatMessage], cancellation_token: CancellationToken
+    ) -> Response:
+        self.received_order = [f"{m.source}:{m.content}" for m in messages]
+        return Response(chat_message=TextMessage(content="ack", source=self.name))
 
     async def on_reset(self, cancellation_token: CancellationToken) -> None:
         pass
 
 
 @pytest.mark.asyncio
+async def test_apply_filter_preserves_chronological_order() -> None:
+    """Messages should be returned in their original chronological order,
+    regardless of the order sources are listed in per_source."""
+    inner = RecordingAgent("B_inner")
+    filtered_agent = MessageFilterAgent(
+        name="B",
+        wrapped_agent=inner,
+        filter=MessageFilterConfig(
+            per_source=[
+                PerSourceFilter(source="user", position="first", count=1),
+                PerSourceFilter(source="A", position="last", count=1),
+                PerSourceFilter(source="B", position="last", count=10),
+            ]
+        ),
+    )
+
+    transcript = [
+        TextMessage(content="please solve X", source="user"),  # t0
+        TextMessage(content="A's first attempt", source="A"),  # t1
+        TextMessage(content="B's first review", source="B"),  # t2
+        TextMessage(content="A's second attempt", source="A"),  # t3
+    ]
+
+    await filtered_agent.on_messages(transcript, CancellationToken())
+
+    # Chronological order: user(t0) -> A(t1) -> B(t2) -> A(t3)
+    # Filter keeps: user(first 1), A(last 1 = t3), B(last 10 = t2)
+    # Result should be in chronological order: user, B(t2), A(t3)
+    assert inner.received_order == [
+        "user:please solve X",
+        "B:B's first review",
+        "A:A's second attempt",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_apply_filter_with_first_position() -> None:
+    """Should keep only the first N messages from a source."""
+    inner = RecordingAgent("test_inner")
+    filtered_agent = MessageFilterAgent(
+        name="test",
+        wrapped_agent=inner,
+        filter=MessageFilterConfig(
+            per_source=[
+                PerSourceFilter(source="user", position="first", count=2),
+            ]
+        ),
+    )
+
+    transcript = [
+        TextMessage(content="msg1", source="user"),
+        TextMessage(content="msg2", source="assistant"),
+        TextMessage(content="msg3", source="user"),
+        TextMessage(content="msg4", source="user"),
+    ]
+
+    await filtered_agent.on_messages(transcript, CancellationToken())
+
+    assert inner.received_order == ["user:msg1", "user:msg3"]
+
+
+@pytest.mark.asyncio
+async def test_apply_filter_with_last_position() -> None:
+    """Should keep only the last N messages from a source."""
+    inner = RecordingAgent("test_inner")
+    filtered_agent = MessageFilterAgent(
+        name="test",
+        wrapped_agent=inner,
+        filter=MessageFilterConfig(
+            per_source=[
+                PerSourceFilter(source="assistant", position="last", count=1),
+            ]
+        ),
+    )
+
+    transcript = [
+        TextMessage(content="user1", source="user"),
+        TextMessage(content="asst1", source="assistant"),
+        TextMessage(content="user2", source="user"),
+        TextMessage(content="asst2", source="assistant"),
+    ]
+
+    await filtered_agent.on_messages(transcript, CancellationToken())
+
+    assert inner.received_order == ["assistant:asst2"]
+
+
+@pytest.mark.asyncio
+async def test_apply_filter_with_no_position_keeps_all() -> None:
+    """When position is None, all messages from that source should be kept."""
+    inner = RecordingAgent("test_inner")
+    filtered_agent = MessageFilterAgent(
+        name="test",
+        wrapped_agent=inner,
+        filter=MessageFilterConfig(
+            per_source=[
+                PerSourceFilter(source="user"),
+            ]
+        ),
+    )
+
+    transcript = [
+        TextMessage(content="user1", source="user"),
+        TextMessage(content="asst1", source="assistant"),
+        TextMessage(content="user2", source="user"),
+    ]
+
+    await filtered_agent.on_messages(transcript, CancellationToken())
+
+    assert inner.received_order == ["user:user1", "user:user2"]
+
+
+@pytest.mark.asyncio
+async def test_apply_filter_empty_transcript() -> None:
+    """Should handle an empty message list gracefully."""
+    inner = RecordingAgent("test_inner")
+    filtered_agent = MessageFilterAgent(
+        name="test",
+        wrapped_agent=inner,
+        filter=MessageFilterConfig(
+            per_source=[
+                PerSourceFilter(source="user", position="first", count=1),
+            ]
+        ),
+    )
+
+    await filtered_agent.on_messages([], CancellationToken())
+
+    assert inner.received_order == []
+
+
+@pytest.mark.asyncio
+async def test_apply_filter_with_multiple_filters_for_same_source() -> None:
+    """Duplicate source filters should both be honored rather than overwriting each other."""
+    inner = RecordingAgent("test_inner")
+    filtered_agent = MessageFilterAgent(
+        name="test",
+        wrapped_agent=inner,
+        filter=MessageFilterConfig(
+            per_source=[
+                PerSourceFilter(source="user", position="first", count=1),
+                PerSourceFilter(source="user", position="last", count=1),
+            ]
+        ),
+    )
+
+    transcript = [
+        TextMessage(content="msg1", source="user"),
+        TextMessage(content="msg2", source="assistant"),
+        TextMessage(content="msg3", source="user"),
+        TextMessage(content="msg4", source="user"),
+    ]
+
+    await filtered_agent.on_messages(transcript, CancellationToken())
+
+    # First 1 from user is msg1, last 1 from user is msg4
+    assert inner.received_order == ["user:msg1", "user:msg4"]
+
+
+@pytest.mark.asyncio
 async def test_message_filter_agent_chronological_order() -> None:
-    # 5 messages in this exact chronological order
-    messages: List[BaseChatMessage] = [
+    """Verify strict chronological preservation with multiple sources."""
+    messages = [
         TextMessage(content="please solve X", source="user"),
         TextMessage(content="A's first attempt", source="A"),
         TextMessage(content="B's first review", source="B"),
@@ -35,31 +203,24 @@ async def test_message_filter_agent_chronological_order() -> None:
         TextMessage(content="B's second review", source="B"),
     ]
 
-    inner = DummyAgent("B_inner")
-    
-    # We want to keep the user's first message, A's last message, and B's last 10 messages.
-    # The config list order shouldn't dictate the chronological output order.
+    inner = RecordingAgent("B_inner")
     filtered_agent = MessageFilterAgent(
         name="B",
         wrapped_agent=inner,
-        filter=MessageFilterConfig(per_source=[
-            PerSourceFilter(source="user", position="first", count=1),
-            PerSourceFilter(source="A", position="last", count=1),
-            PerSourceFilter(source="B", position="last", count=10),
-        ]),
+        filter=MessageFilterConfig(
+            per_source=[
+                PerSourceFilter(source="user", position="first", count=1),
+                PerSourceFilter(source="A", position="last", count=1),
+                PerSourceFilter(source="B", position="last", count=10),
+            ]
+        ),
     )
 
     await filtered_agent.on_messages(messages, CancellationToken())
-    
-    # Verify strict chronological preservation: User (t0) -> B's 1st (t2) -> A's 2nd (t3) -> B's 2nd (t4)
-    # A's 1st attempt (t1) is dropped because we only want A's last message.
-    sources = [m.source for m in inner.received_messages]
-    contents = [m.content for m in inner.received_messages]
-    
-    assert sources == ["user", "B", "A", "B"]
-    assert contents == [
-        "please solve X",
-        "B's first review",
-        "A's second attempt",
-        "B's second review"
+
+    assert inner.received_order == [
+        "user:please solve X",
+        "B:B's first review",
+        "A:A's second attempt",
+        "B:B's second review",
     ]
